@@ -1778,13 +1778,67 @@ namespace DshDoctor
             foreach (string l in lines) sb.AppendLine(l);
             try { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "DSH诊断报告.txt"), sb.ToString(), new UTF8Encoding(false)); }
             catch (Exception ex) { Console.Error.WriteLine("报告写入失败：" + ex.Message); }
+            Console.WriteLine("安装目录：" + Cfg.Root);
+            Console.WriteLine("结果：错误 " + after.Fail + " 个，警告 " + after.Warn + " 个" + (fix ? "（自动修复 " + fixedCount + " 项）" : ""));
+            Console.WriteLine("报告：" + Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "DSH诊断报告.txt"));
             return after.Fail > 0 ? 2 : (after.Warn > 0 ? 1 : 0);
         }
 
+        [DllImport("kernel32.dll")] static extern bool AttachConsole(int pid);
         [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
         [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
 
         static bool Silent;   // --auto 模式：出错只记日志，不弹窗（免得卡住脚本）
+
+        /// <summary>挂到调用者的控制台，这样从命令行/批处理跑时能看见输出（本程序是窗口子系统）。</summary>
+        static void AttachParentConsole()
+        {
+            try
+            {
+                if (AttachConsole(-1))
+                {
+                    StreamWriter so = new StreamWriter(Console.OpenStandardOutput());
+                    so.AutoFlush = true;
+                    Console.SetOut(so);
+                    StreamWriter se = new StreamWriter(Console.OpenStandardError());
+                    se.AutoFlush = true;
+                    Console.SetError(se);
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>把自身复制到探测到的 DSH 安装目录（找不到就提示怎么手动指定）。</summary>
+        static int DeploySelf()
+        {
+            string self = Process.GetCurrentProcess().MainModule.FileName;
+            string root = Cfg.Root;
+            if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+            {
+                Console.Error.WriteLine("[X] 没探测到 DSH 安装目录。");
+                Console.Error.WriteLine("    可以指定路径再试：DSH一键诊断.exe --deploy --root \"D:\\MyDSH\"");
+                Console.Error.WriteLine("    或者干脆不用放进去 —— 这个 exe 放在任何位置都能用。");
+                return 3;
+            }
+            string target = Path.Combine(root, "DSH一键诊断.exe");
+            try
+            {
+                if (string.Equals(Path.GetFullPath(self), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine("[OK] 已经在 DSH 目录里：" + target);
+                    return 0;
+                }
+                File.Copy(self, target, true);
+                Console.WriteLine("[OK] 已部署到 " + target + "（探测来源：" + Cfg.Note + "）");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("[X] 部署失败：" + ex.Message);
+                Console.Error.WriteLine("    目标目录可能需要管理员权限，手动复制也行。");
+                return 3;
+            }
+        }
 
         static void Crash(Exception ex)
         {
@@ -1809,9 +1863,16 @@ namespace DshDoctor
             AppDomain.CurrentDomain.UnhandledException += delegate(object s1, UnhandledExceptionEventArgs e1) { Crash(e1.ExceptionObject as Exception); };
 
             Detector.Detect(args);
+            if (args.Length > 0 && args[0] == "--deploy")
+            {
+                AttachParentConsole();
+                Environment.ExitCode = DeploySelf();
+                return;
+            }
             if (args.Length > 0 && args[0] == "--auto")
             {
                 Silent = true;
+                AttachParentConsole();
                 bool fix = false;
                 for (int i = 1; i < args.Length; i++) if (args[i] == "--fix") fix = true;
                 Environment.ExitCode = AutoRun(fix);

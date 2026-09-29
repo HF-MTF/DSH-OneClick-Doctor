@@ -24,15 +24,23 @@ if ($LASTEXITCODE -ne 0) {
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ('[OK] 已生成 ' + [math]::Round((Get-Item $exe).Length / 1KB) + ' KB -> DSH一键诊断.exe（就在本文件夹里）') -ForegroundColor Green
 
-# 如果这个文件夹的上一层看起来就是 DSH 安装目录（含 dsh / node），顺手也放一份过去
-$parent = Split-Path $src -Parent
-if ($parent -and ((Test-Path (Join-Path $parent 'dsh')) -or (Test-Path (Join-Path $parent 'node')))) {
-    Copy-Item $exe (Join-Path $parent 'DSH一键诊断.exe') -Force
-    Write-Host ('[OK] 已同时部署到 ' + $parent) -ForegroundColor Green
+# 用重定向捕获窗口子系统进程的输出（它是 winexe，直接调用看不到 Console 输出）
+function Invoke-Quiet([string]$argList) {
+    $o = Join-Path $env:TEMP ('dshdoc_' + [guid]::NewGuid().ToString('N') + '.out')
+    $e = Join-Path $env:TEMP ('dshdoc_' + [guid]::NewGuid().ToString('N') + '.err')
+    $p = Start-Process -FilePath $exe -ArgumentList $argList -Wait -PassThru -NoNewWindow -RedirectStandardOutput $o -RedirectStandardError $e
+    if (Test-Path $o) { Get-Content $o -Encoding UTF8 | ForEach-Object { if ($_ -ne '') { Write-Host $_ } } }
+    if (Test-Path $e) { Get-Content $e -Encoding UTF8 | ForEach-Object { if ($_ -ne '') { Write-Host $_ -ForegroundColor Yellow } } }
+    Remove-Item $o,$e -Force -ErrorAction SilentlyContinue
+    return $p.ExitCode
+}
+
+Write-Host '--- 自动探测并部署到 DSH 目录 ---'
+$dc = Invoke-Quiet '--deploy'
+if ($dc -ne 0) {
+    Write-Host '（没找到 DSH 目录也没关系：这个 exe 放在任何位置都能正常用）' -ForegroundColor Yellow
 }
 
 Write-Host '--- 无界面自检 ---'
-& $exe --auto
-Write-Host ('自检退出码=' + $LASTEXITCODE + '  (0=全通过 1=有警告 2=有错误)')
-$rep = Join-Path $src 'DSH诊断报告.txt'
-if (Test-Path $rep) { Write-Host ('报告: ' + $rep) }
+$sc = Invoke-Quiet '--auto'
+Write-Host ('自检退出码=' + $sc + '  (0=全通过 1=有警告 2=有错误)')
