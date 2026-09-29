@@ -18,6 +18,13 @@
 - 未处理异常写入错误日志，绝不静默退出
 - 四大检查组互相隔离，一组出错不影响其余
 
+**探测增强**
+- 新增「从正在运行的 DSH 服务反查安装目录」（端口 → 进程 → 上两级），DSH 开着时最准
+- 扫描范围扩到用户目录、桌面、文档、下载、`%LOCALAPPDATA%\Programs`
+- Node 探测新增 nvm-windows / Volta / fnm / scoop / chocolatey / LocalAppData 等常见位置，以及从运行中的 node 进程反查
+- DSH 主程序新增"数据目录 profile 的 node_modules"与浅扫兜底；数据目录新增 `%APPDATA%\dsh` 等位置
+- 一条都探不到时只报一条明确指引，不再刷一屏误导性错误
+
 **已知行为**
 - 诊断会更新目标目录的 LastWriteTime（可写性测试需要创建再删除临时文件）
 - 用 `--root` 指定安装目录时，数据目录取 `<root>\home`，且不会改动系统环境变量

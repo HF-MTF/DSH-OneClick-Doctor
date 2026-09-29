@@ -88,7 +88,7 @@ namespace DshDoctor
     /// <summary>自动探测 DSH 安装位置、数据目录、Node 与主程序。</summary>
     static class Detector
     {
-        static bool LooksLikeRoot(string dir)
+        public static bool LooksLikeRoot(string dir)
         {
             try
             {
@@ -113,6 +113,28 @@ namespace DshDoctor
             return null;
         }
 
+        /// <summary>DSH 正在跑的时候，从监听端口反查是哪个 node.exe，再推出安装目录。这是最可靠的线索。</summary>
+        static string DetectRootFromPort(List<string> log)
+        {
+            try
+            {
+                int pid = T.PidOnPort(Cfg.Port);
+                if (pid <= 0) return null;
+                string exe = T.ProcPath(pid);
+                if (string.IsNullOrEmpty(exe)) return null;
+                string nodeDir = Path.GetDirectoryName(exe);          // <root>\node
+                if (string.IsNullOrEmpty(nodeDir)) return null;
+                string cand = Path.GetDirectoryName(nodeDir);          // <root>
+                if (LooksLikeRoot(cand))
+                {
+                    log.Add("从正在运行的 DSH 服务反查（端口 " + Cfg.Port + " → PID " + pid + "）");
+                    return cand;
+                }
+            }
+            catch { }
+            return null;
+        }
+
         static string DetectRoot(string forced, List<string> log)
         {
             if (!string.IsNullOrEmpty(forced))
@@ -120,6 +142,9 @@ namespace DshDoctor
                 if (Directory.Exists(forced)) { log.Add("命令行指定"); return forced; }
                 log.Add("命令行指定的安装目录不存在：" + forced);
             }
+            // 最可靠的线索：DSH 正在运行的话，直接问它装在哪
+            string byPort = DetectRootFromPort(log);
+            if (byPort != null) return byPort;
             string self = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
             if (LooksLikeRoot(self)) { log.Add("程序所在目录"); return self; }
             try
@@ -157,19 +182,20 @@ namespace DshDoctor
             cands.Add(Path.Combine(upf, "DeepSeekHarness"));
             foreach (string c in cands)
                 if (LooksLikeRoot(c)) { log.Add("常见安装位置"); return c; }
-            // 扫盘根目录，找名字里带 dsh / harness 且像安装目录的
-            foreach (string drv in new string[] { "C", "D", "E", "F", "G" })
+            // 扫盘根 + 常见用户目录（桌面/文档/下载/AppData\Programs），找名字里带 dsh / harness 且像安装目录的
+            List<string> scanRoots = new List<string>();
+            foreach (string drv in new string[] { "C", "D", "E", "F", "G" }) scanRoots.Add(drv + ":\\");
+            scanRoots.Add(upf);
+            scanRoots.Add(Path.Combine(upf, "Desktop"));
+            scanRoots.Add(Path.Combine(upf, "Documents"));
+            scanRoots.Add(Path.Combine(upf, "Downloads"));
+            scanRoots.Add(Path.Combine(la, "Programs"));
+            scanRoots.Add(Path.Combine(la, "Programs", "DSH"));
+            foreach (string sr in scanRoots)
             {
-                try
-                {
-                    foreach (string d in Directory.GetDirectories(drv + ":\\"))
-                    {
-                        string nm = Path.GetFileName(d).ToLowerInvariant();
-                        if ((nm.Contains("dsh") || nm.Contains("harness")) && LooksLikeRoot(d))
-                        { log.Add("扫描磁盘发现"); return d; }
-                    }
-                }
-                catch { }
+                if (!Directory.Exists(sr)) continue;
+                string hit = ScanForRoot(sr, 2);
+                if (hit != null) { log.Add("扫描 " + sr + " 发现"); return hit; }
             }
             log.Add("未探测到");
             return null;
@@ -194,6 +220,17 @@ namespace DshDoctor
             string dot = Path.Combine(upf, ".dsh");
             if (Directory.Exists(dot) && HasProfile(dot)) { log.Add("用户目录下的 .dsh"); return dot; }
             if (!string.IsNullOrEmpty(h) && Directory.Exists(h)) { log.Add("环境变量 DSH_HOME（未找到 profile）"); return h; }
+            // 常见的数据目录位置
+            string ad = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string lad = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            foreach (string c in new string[] { Path.Combine(ad, "dsh"), Path.Combine(lad, "dsh"), Path.Combine(ad, "DeepSeekHarness"), Path.Combine(lad, "DeepSeekHarness") })
+                if (HasProfile(c)) { log.Add("常见数据目录位置"); return c; }
+            // 在安装目录里浅扫含 profiles\web 的目录
+            if (!string.IsNullOrEmpty(root) && Directory.Exists(root))
+            {
+                string hit = ScanForHome(root, 3);
+                if (hit != null) { log.Add("在安装目录内扫描找到"); return hit; }
+            }
             if (!string.IsNullOrEmpty(root)) { log.Add("按默认约定 root\\home"); return Path.Combine(root, "home"); }
             log.Add("数据目录未探测到");
             return null;
@@ -207,6 +244,31 @@ namespace DshDoctor
                 string n = Path.Combine(Path.Combine(root, "node"), "node.exe");
                 if (File.Exists(n)) { log.Add("安装目录内 node\\node.exe"); return n; }
             }
+            // DSH 正在跑的话，它就跑在某个 node 上，直接问它
+            try
+            {
+                int npid = T.PidOnPort(Cfg.Port);
+                if (npid > 0)
+                {
+                    string np = T.ProcPath(npid);
+                    if (!string.IsNullOrEmpty(np) && File.Exists(np)) { log.Add("从运行中的 DSH 服务反查"); return np; }
+                }
+            }
+            catch { }
+            // 正在运行的其它 node 进程
+            try
+            {
+                foreach (Process np in Process.GetProcessesByName("node"))
+                {
+                    try
+                    {
+                        string f = np.MainModule.FileName;
+                        if (!string.IsNullOrEmpty(f) && File.Exists(f)) { log.Add("从运行中的 node 进程反查"); return f; }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
             string path = Environment.GetEnvironmentVariable("PATH");
             if (!string.IsNullOrEmpty(path))
                 foreach (string p in path.Split(';'))
@@ -218,10 +280,40 @@ namespace DshDoctor
                     }
                     catch { }
                 }
-            foreach (string c in new string[] {
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"nodejs\node.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"nodejs\node.exe") })
-                if (File.Exists(c)) { log.Add("默认安装位置 nodejs"); return c; }
+            string pf  = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string pf86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            string la2 = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string ad2 = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string up2 = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string pd  = Environment.GetEnvironmentVariable("ProgramData") ?? "C:\\ProgramData";
+            List<string> cands = new List<string>();
+            cands.Add(Path.Combine(pf, @"nodejs\node.exe"));
+            cands.Add(Path.Combine(pf86, @"nodejs\node.exe"));
+            cands.Add(Path.Combine(la2, @"Programs\nodejs\node.exe"));
+            cands.Add(Path.Combine(pd, @"chocolatey\bin\node.exe"));
+            cands.Add(Path.Combine(up2, @"scoop\apps\nodejs\current\node.exe"));
+            cands.Add(Path.Combine(la2, @"Volta\bin\node.exe"));
+            cands.Add(Path.Combine(ad2, @"nvm\node.exe"));
+            // nvm-windows：%APPDATA%\nvm\vX.Y.Z\node.exe
+            try
+            {
+                string nvm = Path.Combine(ad2, "nvm");
+                if (Directory.Exists(nvm))
+                    foreach (string d in Directory.GetDirectories(nvm))
+                        cands.Add(Path.Combine(d, "node.exe"));
+            }
+            catch { }
+            // fnm：%LOCALAPPDATA%\fnm_multishells\*\node.exe
+            try
+            {
+                string fnm = Path.Combine(la2, "fnm_multishells");
+                if (Directory.Exists(fnm))
+                    foreach (string d in Directory.GetDirectories(fnm))
+                        cands.Add(Path.Combine(d, "node.exe"));
+            }
+            catch { }
+            foreach (string c in cands)
+                if (File.Exists(c)) { log.Add("常见 Node 安装位置"); return c; }
             log.Add("未找到 node.exe");
             return null;
         }
@@ -233,6 +325,12 @@ namespace DshDoctor
             {
                 string b = Path.Combine(root, @"dsh\node_modules\@deepseek-ai\dsh\lib\bin.js");
                 if (File.Exists(b)) { log.Add("安装目录内 dsh\\node_modules"); return b; }
+            }
+            // 数据目录的 profile 里通常会装上 dsh 本体
+            if (!string.IsNullOrEmpty(Cfg.Home))
+            {
+                string b1 = Path.Combine(Cfg.Home, @"profiles\web\node_modules\@deepseek-ai\dsh\lib\bin.js");
+                if (File.Exists(b1)) { log.Add("profile 的 node_modules 里"); return b1; }
             }
             string appd = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string b2 = Path.Combine(appd, @"npm\node_modules\@deepseek-ai\dsh\lib\bin.js");
@@ -249,7 +347,34 @@ namespace DshDoctor
                     }
             }
             catch { }
+            // 兜底：在安装目录、数据目录里浅扫一遍找 bin.js
+            foreach (string baseDir in new string[] { Cfg.Root, Cfg.Home })
+            {
+                if (string.IsNullOrEmpty(baseDir) || !Directory.Exists(baseDir)) continue;
+                string found = ScanForBinJs(baseDir, 5);
+                if (found != null) { log.Add("扫描 " + baseDir + " 找到"); return found; }
+            }
             log.Add("未找到 bin.js");
+            return null;
+        }
+
+        /// <summary>在目录树里找 @deepseek-ai\dsh\lib\bin.js（限深度，避免太慢）。</summary>
+        static string ScanForBinJs(string dir, int depth)
+        {
+            if (depth <= 0) return null;
+            try
+            {
+                string direct = Path.Combine(dir, @"node_modules\@deepseek-ai\dsh\lib\bin.js");
+                if (File.Exists(direct)) return direct;
+                foreach (string d in Directory.GetDirectories(dir))
+                {
+                    string nm = Path.GetFileName(d).ToLowerInvariant();
+                    if (nm == "node_modules" || nm == "windows" || nm == "system32" || nm == "$recycle.bin") continue;
+                    string hit = ScanForBinJs(d, depth - 1);
+                    if (hit != null) return hit;
+                }
+            }
+            catch { }
             return null;
         }
 
@@ -257,6 +382,43 @@ namespace DshDoctor
         public static void DetectWithRoot(string root)
         {
             Detect(new string[] { "--root", root });
+        }
+
+        /// <summary>在 dir 下（最多 depth 层）找像 DSH 安装目录的子目录。</summary>
+        static string ScanForRoot(string dir, int depth)
+        {
+            if (depth <= 0) return null;
+            try
+            {
+                foreach (string d in Directory.GetDirectories(dir))
+                {
+                    string nm = Path.GetFileName(d).ToLowerInvariant();
+                    if ((nm.Contains("dsh") || nm.Contains("harness")) && LooksLikeRoot(d)) return d;
+                    string sub = ScanForRoot(d, depth - 1);
+                    if (sub != null) return sub;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>在目录树里找含 profiles\web 的数据目录。</summary>
+        static string ScanForHome(string dir, int depth)
+        {
+            if (depth <= 0) return null;
+            try
+            {
+                foreach (string d in Directory.GetDirectories(dir))
+                {
+                    if (HasProfile(d)) return d;
+                    string nm = Path.GetFileName(d).ToLowerInvariant();
+                    if (nm == "node_modules" || nm == ".git") continue;
+                    string hit = ScanForHome(d, depth - 1);
+                    if (hit != null) return hit;
+                }
+            }
+            catch { }
+            return null;
         }
 
         public static void Detect(string[] args)
@@ -274,7 +436,8 @@ namespace DshDoctor
             if (!string.IsNullOrEmpty(h) && Directory.Exists(h)) { Cfg.Home = h; Cfg.HomeFromCmd = true; log.Add("数据目录由命令行指定"); }
             else if (!string.IsNullOrEmpty(Arg(args, "--root"))) Cfg.HomeFromCmd = true;   // 指定了安装目录，就不动系统环境变量
             Cfg.Note = string.Join("；", log.ToArray());
-            if (string.IsNullOrEmpty(Cfg.Root)) Cfg.Root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
+            if (string.IsNullOrEmpty(Cfg.Home) && !string.IsNullOrEmpty(Cfg.Root))
+                Cfg.Home = Path.Combine(Cfg.Root, "home");   // 兜底，避免后续 Path.Combine 拿到 null
         }
     }
 
@@ -418,6 +581,15 @@ namespace DshDoctor
         public static List<Item> All(Action<string> log)
         {
             List<Item> r = new List<Item>();
+
+            // 没找到安装目录时，只做通用的环境检查 —— 否则会刷一屏"缺少核心包""主程序找不到"这类误导性错误
+            if (string.IsNullOrEmpty(Cfg.Root) || !Detector.LooksLikeRoot(Cfg.Root))
+            {
+                RunGroup(r, "运行环境", log, Env);
+                log("没有找到 DSH 安装目录，已跳过依赖/配置/运行状态检查");
+                return r;
+            }
+
             RunGroup(r, "运行环境", log, Env);
             RunGroup(r, "安装完整性", log, Install);
             RunGroup(r, "配置与插件", log, Config);
@@ -454,7 +626,7 @@ namespace DshDoctor
             string g = "运行环境";
 
             // 先报告探测到的位置（通用工具：路径全靠探测）
-            if (!string.IsNullOrEmpty(Cfg.Root) && Directory.Exists(Cfg.Root))
+            if (!string.IsNullOrEmpty(Cfg.Root) && Detector.LooksLikeRoot(Cfg.Root))
             {
                 string src = Cfg.Note;
                 int cut = src.IndexOf('；');
@@ -462,7 +634,13 @@ namespace DshDoctor
                 Add(r, g, "安装位置", 0, Cfg.Root + "（" + src + "）   数据目录 " + (string.IsNullOrEmpty(Cfg.Home) ? "(未找到)" : Cfg.Home));
             }
             else
-                Add(r, g, "安装位置", 3, "没有探测到 DSH 安装目录 —— 用 --root <路径> 指定，或在界面上点路径手动选择");
+            {
+                Item it = Add(r, g, "安装位置", 3,
+                    "没有找到 DSH 安装目录" + (string.IsNullOrEmpty(Cfg.Root) ? "" : "（当前值 " + Cfg.Root + " 里没有 dsh / node / home）")
+                    + "。点下面的「更改目录」手动选一次，或命令行用 --root <路径>；要选的那一层里应该有 dsh、node、home 这几个文件夹。"
+                    + (Cfg.Note.Length > 0 ? "  探测过程：" + Cfg.Note : ""));
+                it.FixLabel = "在界面上点「更改目录」手动指定";
+            }
 
             if (!string.IsNullOrEmpty(Cfg.NodeExe) && File.Exists(Cfg.NodeExe))
             {

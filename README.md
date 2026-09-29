@@ -113,17 +113,20 @@ DSH一键诊断.exe --auto --fix --root "D:\MyDSH"
 **安装目录**（含 `dsh` / `node` / `home` 的那一层）
 
 1. 命令行 `--root <路径>`
-2. 程序自身所在目录，以及它的上级目录
-3. 环境变量 `DSH_ROOT` / `DSH_INSTALL` / `DSH_DIR`
-4. 由 `DSH_HOME` 反推
-5. 常见位置：`?:\DeepSeekHarness`、`?:\DSH`、`?:\Program Files\DeepSeekHarness`、`%LOCALAPPDATA%\DeepSeekHarness`、`%USERPROFILE%\DeepSeekHarness`（盘符 C~G 都扫）
-6. 扫各盘根目录，找名字含 `dsh` / `harness` 且结构像安装目录的
+2. **从正在运行的 DSH 服务反查**（端口 3080 → PID → 进程路径 → 往上两级）—— DSH 开着的时候这条最准
+3. 程序自身所在目录，以及它的上级目录
+4. 环境变量 `DSH_ROOT` / `DSH_INSTALL` / `DSH_DIR`
+5. 由 `DSH_HOME` 反推
+6. 常见位置：`?:\DeepSeekHarness`、`?:\DSH`、`?:\Program Files\DeepSeekHarness`、`%LOCALAPPDATA%\DeepSeekHarness`、`%USERPROFILE%\DeepSeekHarness`（盘符 C~G 都扫）
+7. **扫描各盘根目录 + 用户目录 + 桌面 + 文档 + 下载 + `%LOCALAPPDATA%\Programs`**（往下两层），找名字含 `dsh` / `harness` 且结构像安装目录的
 
-**数据目录**：`--home` → `<安装目录>\home` → 环境变量 `DSH_HOME` → `%USERPROFILE%\.dsh`
+**数据目录**：`--home` → `<安装目录>\home` → 环境变量 `DSH_HOME` → `%USERPROFILE%\.dsh` → `%APPDATA%\dsh` / `%LOCALAPPDATA%\dsh` → 在安装目录里浅扫含 `profiles\web` 的目录
 
-**Node**：`--node` → `<安装目录>\node\node.exe` → `PATH` → `%ProgramFiles%\nodejs\node.exe`
+**Node**：`--node` → `<安装目录>\node\node.exe` → **从正在运行的 DSH 服务反查** → 从其它 node 进程反查 → `PATH` → `%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`、`%APPDATA%\nvm\*`（nvm-windows）、`%LOCALAPPDATA%\Volta\bin`、`%LOCALAPPDATA%\fnm_multishells\*`、`%USERPROFILE%\scoop\apps\nodejs\current`、`C:\ProgramData\chocolatey\bin`
 
-**DSH 主程序**：`--dsh` → `<安装目录>\dsh\node_modules\@deepseek-ai\dsh\lib\bin.js` → npm 全局目录 → npx 缓存
+**DSH 主程序**：`--dsh` → `<安装目录>\dsh\node_modules\@deepseek-ai\dsh\lib\bin.js` → 数据目录 profile 的 `node_modules` → npm 全局目录 → npx 缓存 → 在安装/数据目录里浅扫 `bin.js`
+
+> 一条都没探到时不会硬着头皮往下检查 —— 只报一条明确的错误，告诉你怎么手动指定，而不是刷一屏"缺少核心包""主程序找不到"之类的误导信息。
 
 界面上点 **「更改目录」** 可以随时手动指定，程序会重新探测并立刻重跑一次诊断。探测来源（"程序所在目录" / "环境变量 DSH_ROOT" / "扫描磁盘发现"…）会写在结果里，方便排查为什么没找到。
 
