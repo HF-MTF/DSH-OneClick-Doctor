@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -25,6 +26,7 @@ namespace DshDoctor
         public static string DshBin = "";
         public static string SrcLib = "";
         public static string Note = "";          // 探测过程说明，写进报告
+        public static bool HomeFromCmd = false;  // 数据目录是命令行/界面指定的（此时不改系统环境变量）
 
         public static string PkgRoot
         {
@@ -37,6 +39,49 @@ namespace DshDoctor
         public static string LogFile
         {
             get { return string.IsNullOrEmpty(Home) ? "" : Path.Combine(Home, @"logs\dsh-web.out.log"); }
+        }
+    }
+
+    /// <summary>加固：任何删除/清空操作前先确认目标确实在预期目录内部，杜绝路径异常导致误删。</summary>
+    static class Guard
+    {
+        /// <summary>path 必须严格位于 baseDir 内部（不允许等于基目录本身）。</summary>
+        public static bool Inside(string path, string baseDir)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(baseDir)) return false;
+                string a = Path.GetFullPath(path).TrimEnd('\\', '/').ToLowerInvariant();
+                string r = Path.GetFullPath(baseDir).TrimEnd('\\', '/').ToLowerInvariant();
+                if (a.Length <= r.Length) return false;
+                return a.StartsWith(r + "\\") || a.StartsWith(r + "/");
+            }
+            catch { return false; }
+        }
+
+        public static bool DelFile(string path, string baseDir)
+        {
+            if (!Inside(path, baseDir)) return false;
+            try { File.Delete(path); } catch { }
+            return !File.Exists(path);
+        }
+
+        public static bool DelDir(string path, string baseDir)
+        {
+            if (!Inside(path, baseDir)) return false;
+            try { Directory.Delete(path, true); } catch { }
+            return !Directory.Exists(path);
+        }
+
+        public static void EmptyDir(string path, string baseDir)
+        {
+            if (!Inside(path, baseDir) || !Directory.Exists(path)) return;
+            try
+            {
+                foreach (string d in Directory.GetDirectories(path)) { try { Directory.Delete(d, true); } catch { } }
+                foreach (string f in Directory.GetFiles(path)) { try { File.Delete(f); } catch { } }
+            }
+            catch { }
         }
     }
 
@@ -130,9 +175,15 @@ namespace DshDoctor
             return null;
         }
 
-        static string DetectHome(string root, List<string> log)
+        static string DetectHome(string root, bool rootFromCmd, List<string> log)
         {
             string h = Environment.GetEnvironmentVariable("DSH_HOME");
+            // 明确指定了安装目录时，数据目录必须跟着它，否则会出现"诊断 A 却去读 B 的会话/缓存"
+            if (rootFromCmd && !string.IsNullOrEmpty(root))
+            {
+                string d0 = Path.Combine(root, "home");
+                if (Directory.Exists(d0)) { log.Add("安装目录内的 home（随 --root 指定）"); return d0; }
+            }
             if (!string.IsNullOrEmpty(h) && Directory.Exists(h) && HasProfile(h)) { log.Add("数据目录来自环境变量 DSH_HOME"); return h; }
             if (!string.IsNullOrEmpty(root))
             {
@@ -211,15 +262,17 @@ namespace DshDoctor
         public static void Detect(string[] args)
         {
             List<string> log = new List<string>();
-            Cfg.Root = DetectRoot(Arg(args, "--root"), log);
-            Cfg.Home = DetectHome(Cfg.Root, log);
+            string rootArg = Arg(args, "--root");
+            Cfg.Root = DetectRoot(rootArg, log);
+            Cfg.Home = DetectHome(Cfg.Root, !string.IsNullOrEmpty(rootArg), log);
             Cfg.NodeExe = DetectNode(Cfg.Root, Arg(args, "--node"), log);
             Cfg.NodeDir = string.IsNullOrEmpty(Cfg.NodeExe) ? "" : Path.GetDirectoryName(Cfg.NodeExe);
             Cfg.NpmCmd = string.IsNullOrEmpty(Cfg.NodeDir) ? "" : Path.Combine(Cfg.NodeDir, "npm.cmd");
             Cfg.DshBin = DetectDshBin(Cfg.Root, Arg(args, "--dsh"), log);
             Cfg.SrcLib = string.IsNullOrEmpty(Cfg.Root) ? "" : Path.Combine(Cfg.Root, @"launcher-src\lib");
             string h = Arg(args, "--home");
-            if (!string.IsNullOrEmpty(h) && Directory.Exists(h)) { Cfg.Home = h; log.Add("数据目录由命令行指定"); }
+            if (!string.IsNullOrEmpty(h) && Directory.Exists(h)) { Cfg.Home = h; Cfg.HomeFromCmd = true; log.Add("数据目录由命令行指定"); }
+            else if (!string.IsNullOrEmpty(Arg(args, "--root"))) Cfg.HomeFromCmd = true;   // 指定了安装目录，就不动系统环境变量
             Cfg.Note = string.Join("；", log.ToArray());
             if (string.IsNullOrEmpty(Cfg.Root)) Cfg.Root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
         }
@@ -365,11 +418,25 @@ namespace DshDoctor
         public static List<Item> All(Action<string> log)
         {
             List<Item> r = new List<Item>();
-            Env(r, log);
-            Install(r, log);
-            Config(r, log);
-            Runtime(r, log);
+            RunGroup(r, "运行环境", log, Env);
+            RunGroup(r, "安装完整性", log, Install);
+            RunGroup(r, "配置与插件", log, Config);
+            RunGroup(r, "运行状态", log, Runtime);
             return r;
+        }
+
+        /// <summary>一组检查崩了也要写清楚原因，并且不影响后面的组继续跑。</summary>
+        static void RunGroup(List<Item> r, string name, Action<string> log, Action<List<Item>, Action<string>> step)
+        {
+            try { step(r, log); }
+            catch (Exception ex)
+            {
+                Item it = new Item();
+                it.Group = name; it.Name = "检查组异常"; it.Level = 3;
+                it.Detail = "这一组检查中断：" + ex.Message + "（其余检查已继续）";
+                r.Add(it);
+                log(name + "检查组出错：" + ex.Message);
+            }
         }
 
         static Item Add(List<Item> r, string g, string n, int lv, string d)
@@ -499,7 +566,8 @@ namespace DshDoctor
                     try
                     {
                         Registry.SetValue(@"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\FileSystem", "LongPathsEnabled", 1, RegistryValueKind.DWord);
-                        return true;
+                        object back = Registry.GetValue(@"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\FileSystem", "LongPathsEnabled", 0);
+                        return back != null && Convert.ToInt32(back) == 1;
                     }
                     catch { return false; }
                 };
@@ -567,13 +635,23 @@ namespace DshDoctor
                 Add(r, g, "DSH_HOME 环境变量", 0, env);
             else
             {
-                Item it = Add(r, g, "DSH_HOME 环境变量", 2, "当前值 " + env + " 与启动器使用的 " + Cfg.Home + " 不一致，可能出现会话/配置读不到");
-                it.FixLabel = "改为 " + Cfg.Home;
-                it.Fix = delegate
+                Item it = Add(r, g, "DSH_HOME 环境变量", 2, "当前值 " + env + " 与本次诊断使用的 " + Cfg.Home + " 不一致，可能出现会话/配置读不到");
+                if (Cfg.HomeFromCmd)
                 {
-                    try { Environment.SetEnvironmentVariable("DSH_HOME", Cfg.Home, EnvironmentVariableTarget.User); return true; }
-                    catch { return false; }
-                };
+                    it.Level = 1;   // 本次是命令行/界面指定的目录，环境变量保持不动，只提示
+                    it.Detail += "（本次诊断目录是手动指定的，不会改动系统环境变量）";
+                }
+                else
+                {
+                    it.FixLabel = "改为 " + Cfg.Home;
+                    it.Fix = delegate
+                    {
+                        try { Environment.SetEnvironmentVariable("DSH_HOME", Cfg.Home, EnvironmentVariableTarget.User); }
+                        catch { return false; }
+                        string now = Environment.GetEnvironmentVariable("DSH_HOME", EnvironmentVariableTarget.User);
+                        return string.Equals(now, Cfg.Home, StringComparison.OrdinalIgnoreCase);
+                    };
+                }
             }
 
             // npm 脚本策略（npm 12 会拦 install script）
@@ -623,7 +701,7 @@ namespace DshDoctor
                 {
                     Item it = Add(r, g, "兼容性豁免", 2, "compatibility.json 不是合法 JSON，豁免会全部失效");
                     it.FixLabel = "删除损坏文件";
-                    it.Fix = delegate { try { File.Delete(compat); return true; } catch { return false; } };
+                    it.Fix = delegate { return Guard.DelFile(compat, Cfg.Home); };
                 }
             }
             else Add(r, g, "兼容性豁免", 1, "没有 compatibility.json（有插件因版本不兼容被跳过时可在此精确豁免）");
@@ -668,6 +746,7 @@ namespace DshDoctor
                         try
                         {
                             foreach (string d in miss) File.Copy(Path.Combine(Cfg.SrcLib, d), Path.Combine(Cfg.Root, d), true);
+                            foreach (string d in miss) if (!File.Exists(Path.Combine(Cfg.Root, d))) return false;
                             return true;
                         }
                         catch { return false; }
@@ -813,7 +892,7 @@ namespace DshDoctor
                 {
                     Item it = Add(r, g, "运行时记录", 2, "runtime.json 指向的 PID " + rpid + " 已经不存在（残留记录）");
                     it.FixLabel = "清理残留记录";
-                    it.Fix = delegate { try { File.Delete(rt); return true; } catch { return false; } };
+                    it.Fix = delegate { return Guard.DelFile(rt, Cfg.Root); };
                 }
             }
             else Add(r, g, "运行时记录", 1, "没有 runtime.json（正常，启动器不使用它）");
@@ -857,8 +936,9 @@ namespace DshDoctor
                     {
                         try
                         {
+                            if (!Guard.Inside(Cfg.LogFile, Cfg.Home)) return false;
                             using (FileStream fs2 = new FileStream(Cfg.LogFile, FileMode.Truncate, FileAccess.Write, FileShare.ReadWrite)) { }
-                            return true;
+                            return new FileInfo(Cfg.LogFile).Length == 0;
                         }
                         catch { return false; }
                     };
@@ -874,7 +954,7 @@ namespace DshDoctor
                 {
                     Item it = Add(r, g, "窗口缓存", 2, "页面窗口缓存已 " + T.MB(s) + "，可以清理");
                     it.FixLabel = "清理缓存";
-                    it.Fix = delegate { try { Directory.Delete(wd, true); return true; } catch { return false; } };
+                    it.Fix = delegate { return Guard.DelDir(wd, Cfg.Home); };
                 }
                 else Add(r, g, "窗口缓存", 1, T.MB(s) + "（正常）");
             }
@@ -889,12 +969,10 @@ namespace DshDoctor
                     it.FixLabel = "清理缓存";
                     it.Fix = delegate
                     {
-                        try
-                        {
-                            foreach (string d in Directory.GetDirectories(ncache)) Directory.Delete(d, true);
-                            return true;
-                        }
-                        catch { return false; }
+                        if (Guard.DelDir(ncache, Cfg.Root)) return true;
+                        Guard.EmptyDir(ncache, Cfg.Root);          // 有文件被占用时退而求其次
+                        if (!Directory.Exists(ncache)) return true;
+                        return T.DirSize(ncache) < 1024 * 1024;    // 剩不到 1MB 才算清干净
                     };
                 }
                 else Add(r, g, "npm 缓存", 1, T.MB(s));
@@ -914,7 +992,20 @@ namespace DshDoctor
         public static DiagResult Scan(Action<string> log)
         {
             DiagResult d = new DiagResult();
-            d.Items = Probe.All(log);
+            try { d.Items = Probe.All(log); }
+            catch (Exception ex)
+            {
+                // 兜底：单项/单组出错也不能让整个诊断崩掉
+                if (d.Items == null) d.Items = new List<Item>();
+                Item bad = new Item();
+                bad.Group = "运行环境";
+                bad.Name = "诊断中断";
+                bad.Level = 3;
+                bad.Detail = "扫描时出错：" + ex.Message;
+                d.Items.Add(bad);
+                log("扫描出错：" + ex.Message);
+            }
+            if (d.Items == null) d.Items = new List<Item>();
             foreach (Item it in d.Items)
             {
                 if (it.Level == 0) d.Ok++;
@@ -1686,26 +1777,74 @@ namespace DshDoctor
             sb.AppendLine("过程日志：");
             foreach (string l in lines) sb.AppendLine(l);
             try { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "DSH诊断报告.txt"), sb.ToString(), new UTF8Encoding(false)); }
-            catch { }
+            catch (Exception ex) { Console.Error.WriteLine("报告写入失败：" + ex.Message); }
             return after.Fail > 0 ? 2 : (after.Warn > 0 ? 1 : 0);
+        }
+
+        [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+        [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+
+        static bool Silent;   // --auto 模式：出错只记日志，不弹窗（免得卡住脚本）
+
+        static void Crash(Exception ex)
+        {
+            if (ex == null) return;
+            try
+            {
+                File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "DSH诊断工具-错误日志.txt"),
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + ex + Environment.NewLine + Environment.NewLine,
+                    new UTF8Encoding(false));
+            }
+            catch { }
+            if (Silent) { Console.Error.WriteLine("工具出错：" + ex.Message); return; }
+            try { MessageBox.Show("工具出错了（详情已记录到 DSH诊断工具-错误日志.txt）：" + Environment.NewLine + ex.Message, "DSH 一键诊断", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch { }
         }
 
         [STAThread]
         static void Main(string[] args)
         {
+            // 任何未处理异常都必须留下痕迹，绝不静默退出
+            Application.ThreadException += delegate(object s1, System.Threading.ThreadExceptionEventArgs e1) { Crash(e1.Exception); };
+            AppDomain.CurrentDomain.UnhandledException += delegate(object s1, UnhandledExceptionEventArgs e1) { Crash(e1.ExceptionObject as Exception); };
+
             Detector.Detect(args);
             if (args.Length > 0 && args[0] == "--auto")
             {
+                Silent = true;
                 bool fix = false;
                 for (int i = 1; i < args.Length; i++) if (args[i] == "--fix") fix = true;
                 Environment.ExitCode = AutoRun(fix);
                 return;
             }
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
             bool autoFix = false;
             for (int i = 0; i < args.Length; i++) if (args[i] == "--autofix") autoFix = true;
-            Application.Run(new MainForm(autoFix));
+
+            // 界面版只允许一个实例，避免两个窗口同时改配置/日志
+            bool created;
+            using (Mutex mtx = new Mutex(true, @"Local\DshDoctor_GUI_Instance", out created))
+            {
+                if (!created)
+                {
+                    // 不弹窗（会卡住脚本），直接把已经开着的那个窗口叫到最前面，然后安静退出
+                    try
+                    {
+                        foreach (Process pp in Process.GetProcessesByName(Process.GetCurrentProcess().ProcessName))
+                        {
+                            if (pp.Id == Process.GetCurrentProcess().Id) continue;
+                            if (pp.MainWindowHandle == IntPtr.Zero) continue;
+                            ShowWindow(pp.MainWindowHandle, 9);   // SW_RESTORE
+                            SetForegroundWindow(pp.MainWindowHandle);
+                            break;
+                        }
+                    }
+                    catch { }
+                    return;
+                }
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new MainForm(autoFix));
+            }
         }
     }
 }
