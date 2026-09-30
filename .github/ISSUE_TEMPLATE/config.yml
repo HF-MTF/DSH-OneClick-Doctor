@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: 📖 使用说明 / 常见问题
-    url: https://github.com/HF-MTF/DSH-Doctor/blob/main/README.md
+    url: https://github.com/HF-MTF/DSH-OneClick-Doctor/blob/main/README.md
     about: 先看看 README 的「常见问题」章节，大部分疑问那里已经有答案
   - name: 🔧 自己编译而不是下载 exe
-    url: https://github.com/HF-MTF/DSH-Doctor/blob/main/CONTRIBUTING.md
+    url: https://github.com/HF-MTF/DSH-OneClick-Doctor/blob/main/CONTRIBUTING.md
     about: 不放心运行未签名 exe？用仓库里的源码 + 一键编译.bat 自己构建一份
   - name: 🔒 报告安全问题
-    url: https://github.com/HF-MTF/DSH-Doctor/security/advisories/new
+    url: https://github.com/HF-MTF/DSH-OneClick-Doctor/security/advisories/new
     about: 安全问题请不要开公开 Issue，改用私密漏洞报告

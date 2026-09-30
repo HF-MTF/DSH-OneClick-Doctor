@@ -3,13 +3,13 @@
 [简体中文](README.md) ｜ **English**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/HF-MTF/DSH-Doctor?label=release&color=green)](https://github.com/HF-MTF/DSH-Doctor/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](https://github.com/HF-MTF/DSH-Doctor)
-[![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4?logo=dotnet&logoColor=white)](https://github.com/HF-MTF/DSH-Doctor)
+[![Release](https://img.shields.io/github/v/release/HF-MTF/DSH-OneClick-Doctor?label=release&color=green)](https://github.com/HF-MTF/DSH-OneClick-Doctor/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](https://github.com/HF-MTF/DSH-OneClick-Doctor)
+[![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4?logo=dotnet&logoColor=white)](https://github.com/HF-MTF/DSH-OneClick-Doctor)
 
 > When DeepSeek Harness will not start, plugins fail to load, or the web UI will not open — double-click this. It works out what is wrong, fixes what it safely can, then re-checks and tells you the result.
 
-**[⬇ Download the latest release](https://github.com/HF-MTF/DSH-Doctor/releases/latest)** · Unzip and double-click `DSH一键诊断.exe`. No installation, no configuration, runs from any folder.
+**[⬇ Download the latest release](https://github.com/HF-MTF/DSH-OneClick-Doctor/releases/latest)** · Unzip and double-click `DSH一键诊断.exe`. No installation, no configuration, runs from any folder.
 
 A one-click environment diagnostics and auto-repair tool for local **DeepSeek Harness** installations on Windows. Single file, zero third-party dependencies (.NET Framework 4.8 ships with Windows).
 
@@ -34,7 +34,7 @@ A one-click environment diagnostics and auto-repair tool for local **DeepSeek Ha
 
 ## Quick start
 
-1. Download the zip from [Releases](https://github.com/HF-MTF/DSH-Doctor/releases/latest)
+1. Download the zip from [Releases](https://github.com/HF-MTF/DSH-OneClick-Doctor/releases/latest)
 2. Unzip anywhere and double-click `DSH一键诊断.exe`
 3. A diagnosis starts automatically. If problems are found, click the 一键修复 (Fix All) button — it runs diagnose → fix → re-check and shows you the before/after problem count
 

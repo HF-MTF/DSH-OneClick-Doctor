@@ -1,6 +1,6 @@
 # 更新日志
 
-本文件记录 DSH 一键诊断的版本变化，版本号与 [Releases](https://github.com/HF-MTF/DSH-Doctor/releases) 页面的 tag 对应。
+本文件记录 DSH 一键诊断的版本变化，版本号与 [Releases](https://github.com/HF-MTF/DSH-OneClick-Doctor/releases) 页面的 tag 对应。
 
 ## 未发布
 

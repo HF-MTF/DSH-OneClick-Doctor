@@ -2,13 +2,13 @@
 
 ## 支持版本
 
-只有 [最新 Release](https://github.com/HF-MTF/DSH-Doctor/releases/latest) 提供安全修复。旧版本请先升级再报告。
+只有 [最新 Release](https://github.com/HF-MTF/DSH-OneClick-Doctor/releases/latest) 提供安全修复。旧版本请先升级再报告。
 
 ## 报告安全问题
 
 如果发现的是**安全问题**（而不是普通 Bug），请不要开公开 Issue，改用下面任一方式：
 
-1. GitHub 的 [私密漏洞报告](https://github.com/HF-MTF/DSH-Doctor/security/advisories/new)（推荐）
+1. GitHub 的 [私密漏洞报告](https://github.com/HF-MTF/DSH-OneClick-Doctor/security/advisories/new)（推荐）
 2. 在 Issue 里**只写"发现一个安全问题，请提供私下联系方式"**，不要贴细节
 
 确认后会尽快回复，并在修复发布后致谢。
