@@ -1,0 +1,17 @@
+# 二进制文件：不做任何行尾转换、不参与 diff
+*.exe   binary
+*.dll   binary
+*.ico   binary
+*.png   binary
+*.zip   binary
+
+# Windows 脚本：以 CRLF 检出（cmd 与 PowerShell 5.1 都依赖 CRLF）
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# 源码与文档：按文本处理，便于 diff
+*.cs    text
+*.ps1   text
+*.md    text
+*.yml   text
+

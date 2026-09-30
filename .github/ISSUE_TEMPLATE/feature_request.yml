@@ -1,0 +1,50 @@
+name: 💡 功能建议
+description: 想要新的检查项、新的修复动作，或者其它改进
+title: "[建议] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        欢迎提建议。请尽量说清楚**要解决什么问题**，而不只是「加一个按钮」。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你想解决什么问题
+      description: 描述你遇到的场景
+      placeholder: |
+        每次换电脑都要手动找 DSH 装在哪，希望能自动记住上次的路径。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望它怎么做
+      placeholder: |
+        把上次手动指定的 --root 路径写进配置文件，下次启动优先用它。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 建议类型
+      options:
+        - 新增检查项
+        - 新增自动修复动作
+        - 改进路径探测
+        - 命令行 / 参数
+        - 界面
+        - 文档
+        - 其它
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternative
+    attributes:
+      label: 有没有其它替代方案（可选）
+    validations:
+      required: false

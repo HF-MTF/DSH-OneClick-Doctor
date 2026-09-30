@@ -1,5 +1,43 @@
 # 更新日志
 
+本文件记录 DSH 一键诊断的版本变化，版本号与 [Releases](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/releases) 页面的 tag 对应。
+
+## 未发布
+
+**仓库规范化**
+- 删除误提交的重复文件：`download`（内容实为 `.gitignore` 的副本）、根目录下与 `docs/` 完全重复的两张截图、`dist/` 中比根目录更旧的 exe
+- 补齐社区健康文件：`CONTRIBUTING.md`、`CODE_OF_CONDUCT.md`、`SECURITY.md`、`README_EN.md`、`.github/` 下的 Issue 与 PR 模板、`.gitattributes`
+- README 增加徽章、下载入口、目录导航与「参与贡献」章节，并修正「项目结构」使其与实际仓库一致
+- `app.manifest` 的程序集标识由 `DshLauncher.app` 更正为 `DshDoctor.app`（**需重新编译才会生效**）
+- LICENSE 版权署名更新为 `HF-MTF (HFRin)`
+
+## v1.0.4 — 2026-09-29
+
+**探测能力增强**
+- 安装目录探测新增「从正在运行的 DSH 服务反查」（端口 3080 → PID → 进程路径 → 往上两级），DSH 开着时这条最准
+- Node 探测新增「从运行中的 node 进程反查」
+- 扫描范围扩大到各盘根目录、用户目录、桌面、文档、下载、`%LOCALAPPDATA%\Programs`（往下两层）
+- 一条都探不到时只报一条明确的指引，不再刷一屏"缺少核心包""主程序找不到"之类的误导信息
+
+> 用源码时需要先运行 `一键编译.bat` 重新编译；仓库根目录的 `DSH一键诊断.exe` 即本版本的编译产物。
+
+## v1.0.3 — 2026-09-29
+
+**修复**
+- 修复编译脚本的路径引用问题：原 `build.ps1` 硬编码绝对路径，换一台机器后报 `DriveNotFoundException` 与 `error CS2001: 未能找到源文件`
+- `build.ps1` 改为基于 `$PSScriptRoot`，整个文件夹可以放到任何盘任何目录
+- 修正若干探测逻辑错误
+
+## v1.0.2 — 2026-09-29
+
+**修复**
+- 修复大量 Bug，编译后可直接使用
+- 补齐 `--deploy` 自部署能力（自动探测 DSH 安装目录并复制自身过去）
+
+## v1.0.1 — 2026-09-29
+
+- 最初测试版
+
 ## v1.0.0 — 2026-09-29
 
 首个发布版本。
@@ -17,13 +55,6 @@
 - 界面版单实例互斥；`--auto` 不受限制
 - 未处理异常写入错误日志，绝不静默退出
 - 四大检查组互相隔离，一组出错不影响其余
-
-**探测增强**
-- 新增「从正在运行的 DSH 服务反查安装目录」（端口 → 进程 → 上两级），DSH 开着时最准
-- 扫描范围扩到用户目录、桌面、文档、下载、`%LOCALAPPDATA%\Programs`
-- Node 探测新增 nvm-windows / Volta / fnm / scoop / chocolatey / LocalAppData 等常见位置，以及从运行中的 node 进程反查
-- DSH 主程序新增"数据目录 profile 的 node_modules"与浅扫兜底；数据目录新增 `%APPDATA%\dsh` 等位置
-- 一条都探不到时只报一条明确指引，不再刷一屏误导性错误
 
 **已知行为**
 - 诊断会更新目标目录的 LastWriteTime（可写性测试需要创建再删除临时文件）

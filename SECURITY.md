@@ -1,0 +1,50 @@
+# 安全策略
+
+## 支持版本
+
+只有 [最新 Release](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/releases/latest) 提供安全修复。旧版本请先升级再报告。
+
+## 报告安全问题
+
+如果发现的是**安全问题**（而不是普通 Bug），请不要开公开 Issue，改用下面任一方式：
+
+1. GitHub 的 [私密漏洞报告](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/security/advisories/new)（推荐）
+2. 在 Issue 里**只写"发现一个安全问题，请提供私下联系方式"**，不要贴细节
+
+确认后会尽快回复，并在修复发布后致谢。
+
+## 这个工具会做哪些操作（请先读这一段）
+
+DSH 一键诊断**不是一个纯只读工具** —— 它的「修复」功能会真实改动你的系统。完整清单：
+
+| 操作 | 触发方式 | 说明 |
+|---|---|---|
+| 删除文件 | 点「一键修复」或 `--fix` | 残留的 `runtime.json`、损坏的 `compatibility.json` |
+| 清空目录 | 同上 | 启动日志、页面窗口缓存、npm 缓存 |
+| 写入文件 | 同上 | 插件兼容性豁免、从 `.bak-diag-*` 恢复配置 |
+| 写注册表 | 同上 | 仅「启用长路径支持」一项，需要管理员权限 |
+| 改环境变量 | 同上 | 仅当 `DSH_HOME` 与当前安装不符时；用 `--root` 指定目录时不会动 |
+| 执行命令 | 同上 | `dsh --version` 自检；必要时执行 `npm install` |
+| 联网 | 仅 `npm install` 时 | 由 npm 自己去访问 registry；工具本身不发送任何数据 |
+
+### 安全边界
+
+- 所有删除/清空动作在执行前都会做**路径边界校验**：目标必须严格位于预期目录内部。`..` 逃逸、符号链接指向外部、目标等于基目录本身等情况一律拒绝执行。
+- 每个修复动作完成后都会**验证真实结果**再报成功。
+- 修改配置文件前会留下 `.bak-diag-时间戳` 备份。
+- 工具**不收集、不上传任何数据**，没有遥测，没有自动更新。
+
+## 已知的非安全问题
+
+**杀毒软件报毒 / SmartScreen 拦截**
+本工具是**未签名**的单文件 .NET 程序，容易被启发式引擎误报。这是预期行为，不是被投毒。可以：
+
+- 在杀软里加白名单，或
+- 不下载 exe，直接用仓库里的 `DshDoctor.cs` + `一键编译.bat` 自己编译一份
+
+**两次编译出的 exe 哈希不一样**
+`csc.exe` 没有启用确定性编译，两次构建的二进制可能不同，这是正常的。
+
+## 依赖
+
+只使用 .NET Framework 4.8 自带的三个程序集：`System.dll`、`System.Drawing.dll`、`System.Windows.Forms.dll`。无任何第三方库。

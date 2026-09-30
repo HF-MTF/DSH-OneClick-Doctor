@@ -1,0 +1,88 @@
+name: 🔍 探测不到 DSH 目录
+description: 提示「没有探测到 DSH 安装目录」，或者自动探测到了错误的目录
+title: "[探测] "
+labels: ["detection"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        这是本工具目前最常收到的一类问题。**只要你能把目录结构说清楚，多半很快就能修好。**
+
+        DSH 的「安装目录」指的是**同时含有 `dsh`、`node`、`home` 三个子目录的那一层**。
+
+  - type: input
+    id: actual_path
+    attributes:
+      label: 你的 DSH 实际装在哪个路径
+      description: 填那个同时含有 dsh / node / home 三个子目录的父目录
+      placeholder: D:\DeepSeekHarness
+    validations:
+      required: true
+
+  - type: textarea
+    id: tree
+    attributes:
+      label: 那一层目录里都有什么
+      description: 在该目录执行 dir 或 tree /L /A，把输出粘贴进来。至少要让人看出有没有 dsh / node / home 这三个子目录。
+      render: text
+      placeholder: |
+        D:\DeepSeekHarness 的目录
+        2026/09/29  14:20    <DIR>          dsh
+        2026/09/29  14:20    <DIR>          home
+        2026/09/29  14:20    <DIR>          node
+        2026/09/29  14:20             1,234 启动 DSH.cmd
+    validations:
+      required: true
+
+  - type: input
+    id: detected_path
+    attributes:
+      label: 工具探测结果显示的路径
+      description: 界面上「安装位置」那一项显示的路径，或报告里的「安装目录：」后面的内容
+      placeholder: C:\Users\xxx\Desktop\DSH诊断工具
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: 你的 DSH 是怎么装的
+      options:
+        - 官方安装包 / 一键脚本
+        - 手动解压的绿色版
+        - 装在桌面或其它非标准目录
+        - 安装路径里含中文或空格
+        - Node 是用 nvm / volta / fnm / scoop 管理的
+        - 其它（请在下面说明）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: running
+    attributes:
+      label: 反馈时 DSH 正在运行吗
+      description: DSH 运行时，工具可以从 3080 端口反查到安装位置，这条线索很关键
+      options:
+        - 正在运行（网页界面能打开）
+        - 没有运行（起不来）
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: report
+    attributes:
+      label: 诊断报告
+      description: 运行 DSH一键诊断.exe --auto，把生成的 DSH诊断报告.txt 全文粘贴进来
+      render: text
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: tried
+    attributes:
+      label: 你已经试过下面哪些
+      options:
+        - label: 用 --root 手动指定路径后可以正常工作（说明只是探测没覆盖到）
+        - label: 用 --root 手动指定后仍然报错（说明不只是探测的问题）
+        - label: 我用的是最新 Release 版本

@@ -1,5 +1,6 @@
 # 编译中间产物
 build/
+dist/
 
 # 运行期生成
 DSH诊断报告.txt
@@ -8,6 +9,7 @@ DSH诊断工具-错误日志.txt
 # 备份文件
 *.bak-*
 *.bak2-*
+*.bak-diag-*
 *.prev
 
 # 系统垃圾
