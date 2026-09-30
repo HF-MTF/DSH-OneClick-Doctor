@@ -1,16 +1,18 @@
-# DSH 一键诊断
+# DSH Doctor
+
+**DSH 一键诊断** —— DeepSeek Harness 环境诊断与自动修复工具
 
 [English](README_EN.md) ｜ **简体中文**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool?label=release&color=green)](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool)
-[![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4?logo=dotnet&logoColor=white)](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool)
-[![Stars](https://img.shields.io/github/stars/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool?style=social)](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/stargazers)
+[![Release](https://img.shields.io/github/v/release/HF-MTF/DSH-Doctor?label=release&color=green)](https://github.com/HF-MTF/DSH-Doctor/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)](https://github.com/HF-MTF/DSH-Doctor)
+[![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4?logo=dotnet&logoColor=white)](https://github.com/HF-MTF/DSH-Doctor)
+[![Stars](https://img.shields.io/github/stars/HF-MTF/DSH-Doctor?style=social)](https://github.com/HF-MTF/DSH-Doctor/stargazers)
 
 > DeepSeek Harness 起不来、插件加载失败、页面打不开的时候，双击它 —— 自己查出病因，能修的顺手修好，再复检一遍告诉你结果。
 
-**[⬇ 下载最新版](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/releases/latest)** · 解压后双击 `DSH一键诊断.exe` 即用 —— 无需安装、无需配置、放在哪个目录都能跑。
+**[⬇ 下载最新版](https://github.com/HF-MTF/DSH-Doctor/releases/latest)** · 解压后双击 `DSH一键诊断.exe` 即用 —— 无需安装、无需配置、放在哪个目录都能跑。
 
 适用于 Windows 上的 DeepSeek Harness 本地安装。单文件、无第三方依赖（.NET Framework 4.8 系统自带）。
 
@@ -64,7 +66,7 @@
 
 ### 方式一：直接用（推荐）
 
-到 **[Releases](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/releases/latest)** 下载压缩包，解压后双击 `DSH一键诊断.exe` 即可 —— **它放在任何位置都能用**，会自己探测 DSH 装在哪。
+到 **[Releases](https://github.com/HF-MTF/DSH-Doctor/releases/latest)** 下载压缩包，解压后双击 `DSH一键诊断.exe` 即可 —— **它放在任何位置都能用**，会自己探测 DSH 装在哪。
 
 > 想让它待在 DSH 目录里？不用手动找：双击 `一键编译.bat` 会自动探测并复制过去；已经编译好了的话，运行一次 `DSH一键诊断.exe --deploy` 也一样。
 
@@ -208,7 +210,7 @@ DSH 一键诊断报告   2026-09-29 14:20:51
 ## 常见问题
 
 **提示「没有探测到 DSH 安装目录」？**
-用 `--root <路径>` 指定，或界面点「更改目录」。指定的那一层应该同时含 `dsh`、`node`、`home`。如果自动探测就是找不到你的安装方式，欢迎用 [探测失败模板](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/issues/new?template=detect_failure.yml) 反馈，这类问题修起来很快。
+用 `--root <路径>` 指定，或界面点「更改目录」。指定的那一层应该同时含 `dsh`、`node`、`home`。如果自动探测就是找不到你的安装方式，欢迎用 [探测失败模板](https://github.com/HF-MTF/DSH-Doctor/issues/new?template=detect_failure.yml) 反馈，这类问题修起来很快。
 
 **修复会不会改坏我的配置？**
 改任何配置前都会留 `.bak-diag-时间戳` 备份。插件不兼容优先写豁免而不是删插件。所有删除都在路径边界校验之后执行。
@@ -256,9 +258,9 @@ DSH 一键诊断报告   2026-09-29 14:20:51
 
 欢迎提交 Issue 和 PR。动手之前请先读一遍 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-- 🐞 [报告 Bug](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/issues/new?template=bug_report.yml)
-- 🔍 [探测不到 DSH 目录](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/issues/new?template=detect_failure.yml) —— 目前最常收到的一类问题
-- 💡 [功能建议](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/issues/new?template=feature_request.yml)
+- 🐞 [报告 Bug](https://github.com/HF-MTF/DSH-Doctor/issues/new?template=bug_report.yml)
+- 🔍 [探测不到 DSH 目录](https://github.com/HF-MTF/DSH-Doctor/issues/new?template=detect_failure.yml) —— 目前最常收到的一类问题
+- 💡 [功能建议](https://github.com/HF-MTF/DSH-Doctor/issues/new?template=feature_request.yml)
 - 🔒 安全问题请按 [SECURITY.md](SECURITY.md) 的方式报告
 
 > 提 Issue 时**附上诊断报告**（运行 `DSH一键诊断.exe --auto` 得到的 `DSH诊断报告.txt` 全文）能极大加快定位速度。

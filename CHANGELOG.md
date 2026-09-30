@@ -1,8 +1,12 @@
 # 更新日志
 
-本文件记录 DSH 一键诊断的版本变化，版本号与 [Releases](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/releases) 页面的 tag 对应。
+本文件记录 DSH 一键诊断的版本变化，版本号与 [Releases](https://github.com/HF-MTF/DSH-Doctor/releases) 页面的 tag 对应。
 
 ## 未发布
+
+**命名统一**
+- 仓库更名为 `DSH-Doctor`（原 `DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool`）
+- README 标题统一为 **DSH Doctor**，英文副标题与中文名并列；仓库 Description 与 Release 标题同步重写
 
 **仓库规范化**
 - 删除误提交的重复文件：`download`（内容实为 `.gitignore` 的副本）、根目录下与 `docs/` 完全重复的两张截图、`dist/` 中比根目录更旧的 exe

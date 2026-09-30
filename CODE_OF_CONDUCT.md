@@ -76,5 +76,5 @@
 
 ## 联系方式
 
-- 一般问题：开一个 [Issue](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/issues)
-- 需要私下沟通（包括举报本准则相关事件）：使用 [私密漏洞报告](https://github.com/HF-MTF/DeepSeek-Harness-Environment-One-Click-Diagnostic-and-Repair-Tool/security/advisories/new)，或直接在 GitHub 上联系维护者 [@HF-MTF](https://github.com/HF-MTF)
+- 一般问题：开一个 [Issue](https://github.com/HF-MTF/DSH-Doctor/issues)
+- 需要私下沟通（包括举报本准则相关事件）：使用 [私密漏洞报告](https://github.com/HF-MTF/DSH-Doctor/security/advisories/new)，或直接在 GitHub 上联系维护者 [@HF-MTF](https://github.com/HF-MTF)
