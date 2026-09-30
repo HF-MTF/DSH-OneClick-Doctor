@@ -88,16 +88,59 @@ namespace DshDoctor
     /// <summary>自动探测 DSH 安装位置、数据目录、Node 与主程序。</summary>
     static class Detector
     {
-        public static bool LooksLikeRoot(string dir)
+        // ── 结构指纹评分：不要求文件夹叫什么名字，只看结构像不像 DSH 安装根 ──
+        public static int ScoreRoot(string dir)
+        {
+            if (string.IsNullOrEmpty(dir)) return -1;
+            try
+            {
+                if (!Directory.Exists(dir)) return -1;
+                bool hasBin  = File.Exists(Path.Combine(dir, @"dsh\node_modules\@deepseek-ai\dsh\lib\bin.js"));
+                bool hasDsh  = Directory.Exists(Path.Combine(dir, "dsh"));
+                bool hasNode = Directory.Exists(Path.Combine(dir, "node"));
+                bool hasHome = Directory.Exists(Path.Combine(dir, "home"));
+                if (!hasDsh && !hasBin) return 0;                 // 硬门槛：连 dsh 都没有
+                if (!hasNode && !hasHome && !hasBin) return 0;    // 只有 dsh 目录，多半是包本体而不是安装根
+                int s = 0;
+                if (hasBin) s += 100;
+                if (Directory.Exists(Path.Combine(dir, @"dsh\node_modules\@deepseek-ai"))) s += 50;
+                if (hasDsh) s += 20;
+                if (File.Exists(Path.Combine(dir, @"node\node.exe"))) s += 30;
+                if (hasNode) s += 10;
+                if (Directory.Exists(Path.Combine(dir, @"home\profiles"))) s += 30;
+                if (hasHome) s += 15;
+                return s;
+            }
+            catch { return -1; }
+        }
+
+        public static bool LooksLikeRoot(string dir) { return ScoreRoot(dir) >= 45; }
+
+        // 扫描时跳过的目录：系统区、依赖包、缓存 —— 既没意义，又最容易触发权限异常
+        static readonly string[] SkipNames = new string[] {
+            "windows", "winsxs", "$recycle.bin", "system volume information", "recovery", "config.msi",
+            "node_modules", ".git", ".svn", ".hg", "__pycache__", ".venv", "venv",
+            "temp", "tmp", "cache", ".cache", ".npm", ".gradle", ".m2", ".nuget",
+            "installer", "softwaredistribution", "driverstore", "prefetch", "assembly", "servicing",
+            "package cache", "onedrivetemp", "logs", "appdata", "application data",
+            "onedrive", "dropbox", "googledrive", ".dropbox", "creative cloud files",
+            "local settings", "my documents", "history", "temporary internet files", "cookies",
+            "nethood", "printhood", "recent", "sendto", "templates", "start menu", "recent places"
+        };
+
+        static bool SkipDir(string path)
         {
             try
             {
-                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
-                return Directory.Exists(Path.Combine(dir, "dsh"))
-                    || Directory.Exists(Path.Combine(dir, "node"))
-                    || Directory.Exists(Path.Combine(dir, "home"));
+                string n = Path.GetFileName(path);
+                if (string.IsNullOrEmpty(n)) return true;
+                n = n.ToLowerInvariant();
+                for (int i = 0; i < SkipNames.Length; i++) if (n == SkipNames[i]) return true;
+                // 跳过重新解析点（junction / 符号链接）：既避免重复扫描，也避免卷进巨大的系统目录
+                if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) return true;
+                return false;
             }
-            catch { return false; }
+            catch { return true; }
         }
 
         static bool HasProfile(string home)
@@ -137,67 +180,198 @@ namespace DshDoctor
 
         static string DetectRoot(string forced, List<string> log)
         {
+            // 1) 命令行指定
             if (!string.IsNullOrEmpty(forced))
             {
                 if (Directory.Exists(forced)) { log.Add("命令行指定"); return forced; }
                 log.Add("命令行指定的安装目录不存在：" + forced);
             }
-            // 最可靠的线索：DSH 正在运行的话，直接问它装在哪
+            // 2) DSH 正在运行：从监听端口反查（最可靠）
             string byPort = DetectRootFromPort(log);
             if (byPort != null) return byPort;
+            // 3) 从任何正在运行的 node 进程反查
+            string byNode = DetectRootFromNodeProc(log);
+            if (byNode != null) return byNode;
+            // 4) 程序自身目录，以及往上四级
             string self = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
-            if (LooksLikeRoot(self)) { log.Add("程序所在目录"); return self; }
-            try
+            string cur = self;
+            for (int i = 0; i < 4 && !string.IsNullOrEmpty(cur); i++)
             {
-                string up = Path.GetDirectoryName(self);
-                if (LooksLikeRoot(up)) { log.Add("程序上级目录"); return up; }
+                if (LooksLikeRoot(cur))
+                {
+                    log.Add(i == 0 ? "程序所在目录" : "程序上 " + i + " 级目录");
+                    return cur;
+                }
+                try { cur = Path.GetDirectoryName(cur); } catch { cur = null; }
             }
-            catch { }
+            // 5) 环境变量
             foreach (string k in new string[] { "DSH_ROOT", "DSH_INSTALL", "DSH_DIR" })
             {
                 string v = Environment.GetEnvironmentVariable(k);
                 if (LooksLikeRoot(v)) { log.Add("环境变量 " + k); return v; }
             }
+            // 6) 由 DSH_HOME 反推
             string homeEnv = Environment.GetEnvironmentVariable("DSH_HOME");
             if (!string.IsNullOrEmpty(homeEnv))
             {
                 try
                 {
-                    string p = Path.GetDirectoryName(homeEnv.TrimEnd('\\'));
-                    if (LooksLikeRoot(p)) { log.Add("由 DSH_HOME 反推"); return p; }
+                    string pp = Path.GetDirectoryName(homeEnv.TrimEnd('\\'));
+                    if (LooksLikeRoot(pp)) { log.Add("由 DSH_HOME 反推"); return pp; }
                 }
                 catch { }
             }
-            List<string> cands = new List<string>();
-            foreach (string drv in new string[] { "C", "D", "E", "F", "G" })
-            {
-                cands.Add(drv + ":\\DeepSeekHarness");
-                cands.Add(drv + ":\\DSH");
-                cands.Add(drv + ":\\Program Files\\DeepSeekHarness");
-            }
+            // 7) 桌面 / 开始菜单的快捷方式反查
+            string byLnk = DetectRootFromShortcut(log);
+            if (byLnk != null) return byLnk;
+            // 8) 常见位置：所有固定盘符 × 一批常见目录名
+            string byCommon = DetectRootFromCommon(log);
+            if (byCommon != null) return byCommon;
+            // 9) 扫描用户目录（桌面 / 文档 / 下载 / 用户根 / AppData / Program Files）
             string la = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string upf = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            cands.Add(Path.Combine(la, "DeepSeekHarness"));
-            cands.Add(Path.Combine(la, "Programs", "DeepSeekHarness"));
-            cands.Add(Path.Combine(upf, "DeepSeekHarness"));
-            foreach (string c in cands)
-                if (LooksLikeRoot(c)) { log.Add("常见安装位置"); return c; }
-            // 扫盘根 + 常见用户目录（桌面/文档/下载/AppData\Programs），找名字里带 dsh / harness 且像安装目录的
-            List<string> scanRoots = new List<string>();
-            foreach (string drv in new string[] { "C", "D", "E", "F", "G" }) scanRoots.Add(drv + ":\\");
-            scanRoots.Add(upf);
-            scanRoots.Add(Path.Combine(upf, "Desktop"));
-            scanRoots.Add(Path.Combine(upf, "Documents"));
-            scanRoots.Add(Path.Combine(upf, "Downloads"));
-            scanRoots.Add(Path.Combine(la, "Programs"));
-            scanRoots.Add(Path.Combine(la, "Programs", "DSH"));
-            foreach (string sr in scanRoots)
+            List<string> userRoots = new List<string>();
+            userRoots.Add(upf);
+            userRoots.Add(Path.Combine(upf, "Desktop"));
+            userRoots.Add(Path.Combine(upf, "Documents"));
+            userRoots.Add(Path.Combine(upf, "Downloads"));
+            userRoots.Add(Path.Combine(upf, "OneDrive"));
+            userRoots.Add(Path.Combine(la, "Programs"));
+            userRoots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+            userRoots.Add(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
+            string hit = ScanForRoot(userRoots, 3, 20000, 12000, log, "扫描用户目录");
+            if (hit != null) return hit;
+            // 10) 扫描所有固定盘符
+            List<string> drives = new List<string>();
+            try
             {
-                if (!Directory.Exists(sr)) continue;
-                string hit = ScanForRoot(sr, 2);
-                if (hit != null) { log.Add("扫描 " + sr + " 发现"); return hit; }
+                foreach (DriveInfo di in DriveInfo.GetDrives())
+                    if (di.DriveType == DriveType.Fixed) drives.Add(di.RootDirectory.FullName);
             }
+            catch { }
+            if (drives.Count == 0) foreach (string d in new string[] { "C", "D", "E", "F", "G" }) drives.Add(d + ":\\");
+            hit = ScanForRoot(drives, 5, 400000, 45000, log, "扫描磁盘");
+            if (hit != null) return hit;
             log.Add("未探测到");
+            return null;
+        }
+
+        /// <summary>从正在运行的 node 进程反查：node 目录的上一级就是安装根。</summary>
+        static string DetectRootFromNodeProc(List<string> log)
+        {
+            try
+            {
+                foreach (Process p in Process.GetProcessesByName("node"))
+                {
+                    try
+                    {
+                        string f = p.MainModule.FileName;
+                        if (string.IsNullOrEmpty(f)) continue;
+                        string d = Path.GetDirectoryName(f);
+                        if (string.IsNullOrEmpty(d)) continue;
+                        if (!string.Equals(Path.GetFileName(d), "node", StringComparison.OrdinalIgnoreCase)) continue;
+                        string cand = Path.GetDirectoryName(d);
+                        if (LooksLikeRoot(cand)) { log.Add("从运行中的 node 进程反查（PID " + p.Id + "）"); return cand; }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>扫桌面与开始菜单的 .lnk，从快捷方式的目标反推安装目录。</summary>
+        static string DetectRootFromShortcut(List<string> log)
+        {
+            try
+            {
+                List<string> dirs = new List<string>();
+                dirs.Add(Environment.GetFolderPath(Environment.SpecialFolder.Desktop));
+                dirs.Add(Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory));
+                dirs.Add(Environment.GetFolderPath(Environment.SpecialFolder.Programs));
+                dirs.Add(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms));
+                List<string> links = new List<string>();
+                for (int i = 0; i < dirs.Count; i++)
+                {
+                    string d = dirs[i];
+                    if (string.IsNullOrEmpty(d) || !Directory.Exists(d)) continue;
+                    try { links.AddRange(Directory.GetFiles(d, "*.lnk", SearchOption.AllDirectories)); }
+                    catch { }
+                }
+                if (links.Count == 0) return null;
+                Type t = Type.GetTypeFromProgID("WScript.Shell");
+                if (t == null) return null;
+                object shell = Activator.CreateInstance(t);
+                try
+                {
+                    for (int i = 0; i < links.Count; i++)
+                    {
+                        try
+                        {
+                            object sc = t.InvokeMember("CreateShortcut", System.Reflection.BindingFlags.InvokeMethod, null, shell, new object[] { links[i] });
+                            object tp = sc.GetType().InvokeMember("TargetPath", System.Reflection.BindingFlags.GetProperty, null, sc, null);
+                            string target = tp as string;
+                            if (string.IsNullOrEmpty(target)) continue;
+                            string dir = Path.GetDirectoryName(target);
+                            for (int k = 0; k < 3 && !string.IsNullOrEmpty(dir); k++)
+                            {
+                                if (LooksLikeRoot(dir))
+                                {
+                                    log.Add("从快捷方式反查（" + Path.GetFileName(links[i]) + "）");
+                                    return dir;
+                                }
+                                try { dir = Path.GetDirectoryName(dir); } catch { dir = null; }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+                finally
+                {
+                    try { System.Runtime.InteropServices.Marshal.ReleaseComObject(shell); } catch { }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>常见位置：所有固定盘符 × 一批可能的目录名，外加用户目录下的同名目录。</summary>
+        static string DetectRootFromCommon(List<string> log)
+        {
+            List<string> drives = new List<string>();
+            try
+            {
+                foreach (DriveInfo di in DriveInfo.GetDrives())
+                    if (di.DriveType == DriveType.Fixed) drives.Add(di.Name.Substring(0, 2));
+            }
+            catch { }
+            if (drives.Count == 0) foreach (string d in new string[] { "C:", "D:", "E:", "F:", "G:" }) drives.Add(d);
+            string[] names = new string[] { "DeepSeekHarness", "DeepSeek-Harness", "deepseek-harness", "DSH", "dsh", "Harness", "DeepSeek" };
+            string upf = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string la = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string ad = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            string pf86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            string pd = Environment.GetEnvironmentVariable("ProgramData");
+            if (string.IsNullOrEmpty(pd)) pd = "C:\\ProgramData";
+            List<string> cands = new List<string>();
+            for (int i = 0; i < drives.Count; i++)
+                for (int k = 0; k < names.Length; k++) cands.Add(drives[i] + "\\" + names[k]);
+            for (int k = 0; k < names.Length; k++)
+            {
+                cands.Add(Path.Combine(upf, names[k]));
+                cands.Add(Path.Combine(upf, "Desktop", names[k]));
+                cands.Add(Path.Combine(upf, "Documents", names[k]));
+                cands.Add(Path.Combine(upf, "Downloads", names[k]));
+                cands.Add(Path.Combine(la, names[k]));
+                cands.Add(Path.Combine(la, "Programs", names[k]));
+                cands.Add(Path.Combine(ad, names[k]));
+                cands.Add(Path.Combine(pf, names[k]));
+                cands.Add(Path.Combine(pf86, names[k]));
+                cands.Add(Path.Combine(pd, names[k]));
+            }
+            for (int i = 0; i < cands.Count; i++)
+                if (LooksLikeRoot(cands[i])) { log.Add("常见位置 " + cands[i]); return cands[i]; }
             return null;
         }
 
@@ -358,20 +532,25 @@ namespace DshDoctor
             return null;
         }
 
-        /// <summary>在目录树里找 @deepseek-ai\dsh\lib\bin.js（限深度，避免太慢）。</summary>
+        /// <summary>在目录树里找 @deepseek-ai\dsh\lib\bin.js（逐目录独立保护）。</summary>
         static string ScanForBinJs(string dir, int depth)
         {
-            if (depth <= 0) return null;
+            if (depth <= 0 || string.IsNullOrEmpty(dir)) return null;
             try
             {
                 string direct = Path.Combine(dir, @"node_modules\@deepseek-ai\dsh\lib\bin.js");
                 if (File.Exists(direct)) return direct;
-                foreach (string d in Directory.GetDirectories(dir))
+                string[] subs;
+                try { subs = Directory.GetDirectories(dir); } catch { return null; }
+                for (int i = 0; i < subs.Length; i++)
                 {
-                    string nm = Path.GetFileName(d).ToLowerInvariant();
-                    if (nm == "node_modules" || nm == "windows" || nm == "system32" || nm == "$recycle.bin") continue;
-                    string hit = ScanForBinJs(d, depth - 1);
-                    if (hit != null) return hit;
+                    try
+                    {
+                        if (SkipDir(subs[i])) continue;
+                        string hit = ScanForBinJs(subs[i], depth - 1);
+                        if (hit != null) return hit;
+                    }
+                    catch { }
                 }
             }
             catch { }
@@ -384,37 +563,67 @@ namespace DshDoctor
             Detect(new string[] { "--root", root });
         }
 
-        /// <summary>在 dir 下（最多 depth 层）找像 DSH 安装目录的子目录。</summary>
-        static string ScanForRoot(string dir, int depth)
+        /// <summary>
+        /// 广度优先扫描：只看结构指纹、不要求目录名，且每个子目录单独 try/catch ——
+        /// 碰到一个没权限的目录（例如 System Volume Information）不会中断整轮扫描。
+        /// </summary>
+        internal static string ScanForRoot(List<string> roots, int maxDepth, int budget, int logMaxMs, List<string> log, string tag)
         {
-            if (depth <= 0) return null;
-            try
+            Queue<KeyValuePair<string, int>> q = new Queue<KeyValuePair<string, int>>();
+            for (int i = 0; i < roots.Count; i++)
             {
-                foreach (string d in Directory.GetDirectories(dir))
+                try { if (!string.IsNullOrEmpty(roots[i]) && Directory.Exists(roots[i])) q.Enqueue(new KeyValuePair<string, int>(roots[i], 0)); }
+                catch { }
+            }
+            int visited = 0;
+            int t0 = Environment.TickCount;
+            while (q.Count > 0)
+            {
+                KeyValuePair<string, int> cur = q.Dequeue();
+                visited++;
+                if ((visited & 255) == 0 && Environment.TickCount - t0 > logMaxMs)
                 {
-                    string nm = Path.GetFileName(d).ToLowerInvariant();
-                    if ((nm.Contains("dsh") || nm.Contains("harness")) && LooksLikeRoot(d)) return d;
-                    string sub = ScanForRoot(d, depth - 1);
-                    if (sub != null) return sub;
+                    log.Add(tag + "：达到时间上限（" + (logMaxMs / 1000) + " 秒，已检查 " + visited + " 个目录）仍未命中");
+                    break;
+                }
+                if (visited > budget) { log.Add(tag + "：达到上限（已检查 " + budget + " 个目录）仍未命中"); break; }
+                int sc = ScoreRoot(cur.Key);
+                if (sc >= 45) { log.Add(tag + "：命中 " + cur.Key + "（结构评分 " + sc + "）"); return cur.Key; }
+                if (cur.Value >= maxDepth) continue;
+                string[] subs;
+                try { subs = Directory.GetDirectories(cur.Key); }
+                catch { continue; }
+                for (int i = 0; i < subs.Length; i++)
+                {
+                    try
+                    {
+                        if (SkipDir(subs[i])) continue;
+                        q.Enqueue(new KeyValuePair<string, int>(subs[i], cur.Value + 1));
+                    }
+                    catch { }
                 }
             }
-            catch { }
             return null;
         }
 
-        /// <summary>在目录树里找含 profiles\web 的数据目录。</summary>
+        /// <summary>在目录树里找含 profiles\web 的数据目录。逐目录独立保护，不会因为一个没权限的子目录中断整轮扫描。</summary>
         static string ScanForHome(string dir, int depth)
         {
-            if (depth <= 0) return null;
+            if (depth <= 0 || string.IsNullOrEmpty(dir)) return null;
             try
             {
-                foreach (string d in Directory.GetDirectories(dir))
+                if (HasProfile(dir)) return dir;
+                string[] subs;
+                try { subs = Directory.GetDirectories(dir); } catch { return null; }
+                for (int i = 0; i < subs.Length; i++)
                 {
-                    if (HasProfile(d)) return d;
-                    string nm = Path.GetFileName(d).ToLowerInvariant();
-                    if (nm == "node_modules" || nm == ".git") continue;
-                    string hit = ScanForHome(d, depth - 1);
-                    if (hit != null) return hit;
+                    try
+                    {
+                        if (SkipDir(subs[i])) continue;
+                        string hit = ScanForHome(subs[i], depth - 1);
+                        if (hit != null) return hit;
+                    }
+                    catch { }
                 }
             }
             catch { }
@@ -425,6 +634,16 @@ namespace DshDoctor
         {
             List<string> log = new List<string>();
             string rootArg = Arg(args, "--root");
+            string portArg = Arg(args, "--port");
+            if (!string.IsNullOrEmpty(portArg))
+            {
+                int pv;
+                if (int.TryParse(portArg, out pv) && pv > 0 && pv < 65536)
+                {
+                    Cfg.Port = pv;
+                    log.Add("服务端口由命令行指定：" + pv);
+                }
+            }
             Cfg.Root = DetectRoot(rootArg, log);
             Cfg.Home = DetectHome(Cfg.Root, !string.IsNullOrEmpty(rootArg), log);
             Cfg.NodeExe = DetectNode(Cfg.Root, Arg(args, "--node"), log);
@@ -720,7 +939,13 @@ namespace DshDoctor
             // 磁盘
             try
             {
-                DriveInfo d = new DriveInfo(Path.GetPathRoot(Cfg.Root));
+                string rootDrive = string.IsNullOrEmpty(Cfg.Root) ? null : Path.GetPathRoot(Cfg.Root);
+                if (string.IsNullOrEmpty(rootDrive))
+                {
+                    string sysDrive = Environment.GetEnvironmentVariable("SystemDrive");
+                    rootDrive = string.IsNullOrEmpty(sysDrive) ? "C:\\" : sysDrive + "\\";
+                }
+                DriveInfo d = new DriveInfo(rootDrive);
                 double free = d.AvailableFreeSpace / 1073741824.0;
                 string fs = d.DriveFormat;
                 if (free >= 5) Add(r, g, "磁盘空间", 0, d.Name + " 剩余 " + free.ToString("0.0") + " GB");
@@ -1901,7 +2126,8 @@ namespace DshDoctor
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("DSH 一键诊断报告   " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                 sb.AppendLine("计算机：" + Environment.MachineName + "   用户：" + Environment.UserName);
-                sb.AppendLine("安装目录：" + Cfg.Root);
+                sb.AppendLine("安装目录：" + (string.IsNullOrEmpty(Cfg.Root) ? "（未探测到）" : Cfg.Root));
+            sb.AppendLine("探测过程：" + (string.IsNullOrEmpty(Cfg.Note) ? "（无）" : Cfg.Note));
                 sb.AppendLine("结果：错误 " + (_last == null ? 0 : _last.Fail) + " 个，警告 " + (_last == null ? 0 : _last.Warn) + " 个");
                 sb.AppendLine("========================================");
                 string lastG = "";

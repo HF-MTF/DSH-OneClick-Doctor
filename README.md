@@ -98,6 +98,7 @@
 | `--home <路径>` | 指定 DSH_HOME |
 | `--node <路径>` | 指定 node.exe |
 | `--dsh <路径>` | 指定 dsh 的 bin.js |
+| `--port <端口>` | 指定 DSH 服务端口（默认 3080），用于从运行中的服务反查安装位置 |
 | `DSH一键诊断.exe --deploy` | 自动探测 DSH 安装目录，把自身复制过去（探测逻辑和运行时同一套）|
 
 示例：
@@ -146,28 +147,50 @@ DSH一键诊断.exe --auto --fix --root "D:\MyDSH"
 
 ## 通用性：路径全靠自动探测
 
-这是个通用工具，不假设你装在哪儿。启动时按顺序探测，并把结果作为第一项检查显示出来。
+这是个通用工具，不假设你装在哪儿，**也不要求文件夹叫什么名字**。启动后按下面的顺序找，找到即停；结果会作为第一项检查显示出来，并写明是从哪条线索找到的。
 
 **安装目录**（含 `dsh` / `node` / `home` 的那一层）
 
 1. 命令行 `--root <路径>`
-2. **从正在运行的 DSH 服务反查**（端口 3080 → PID → 进程路径 → 往上两级）—— DSH 开着的时候这条最准
-3. 程序自身所在目录，以及它的上级目录
-4. 环境变量 `DSH_ROOT` / `DSH_INSTALL` / `DSH_DIR`
-5. 由 `DSH_HOME` 反推
-6. 常见位置：`?:\DeepSeekHarness`、`?:\DSH`、`?:\Program Files\DeepSeekHarness`、`%LOCALAPPDATA%\DeepSeekHarness`、`%USERPROFILE%\DeepSeekHarness`（盘符 C~G 都扫）
-7. **扫描各盘根目录 + 用户目录 + 桌面 + 文档 + 下载 + `%LOCALAPPDATA%\Programs`**（往下两层），找名字含 `dsh` / `harness` 且结构像安装目录的
+2. **从正在运行的 DSH 服务反查**（端口 → PID → 进程路径 → 往上两级）—— DSH 开着的时候这条最准
+3. **从正在运行的 node 进程反查**（node.exe 所在目录的上一级）
+4. 程序自身目录，以及**往上四级**
+5. 环境变量 `DSH_ROOT` / `DSH_INSTALL` / `DSH_DIR`
+6. 由 `DSH_HOME` 反推
+7. **桌面与开始菜单的快捷方式**（读 `.lnk` 指向的目标路径）
+8. 常见位置：所有固定盘符 × `DeepSeekHarness` / `DeepSeek-Harness` / `DSH` / `dsh` / `Harness` / `DeepSeek`，外加用户目录、桌面、文档、下载下的同名目录
+9. **扫描用户目录**（用户根 / 桌面 / 文档 / 下载 / OneDrive / `%LOCALAPPDATA%\Programs` / Program Files），深度 3，12 秒预算
+10. **扫描所有固定盘符**，深度 5，45 秒预算
+
+### 怎么判断一个目录「像不像」DSH 安装根
+
+**不看名字，看结构指纹**，逐项打分：
+
+| 特征 | 分值 |
+|---|---|
+| `dsh\node_modules\@deepseek-ai\dsh\lib\bin.js` 存在 | +100 |
+| `dsh\node_modules\@deepseek-ai` 目录存在 | +50 |
+| `node\node.exe` 存在 | +30 |
+| `home\profiles` 存在 | +30 |
+| `dsh` 目录存在 | +20 |
+| `home` 目录存在 | +15 |
+| `node` 目录存在 | +10 |
+
+**硬门槛**：既没有 `dsh` 目录也没有 `bin.js` 的目录直接淘汰；只有 `dsh` 一个目录、既无 `node` 也无 `home` 的也淘汰（那多半是 dsh 包本身而不是安装根）。**总分 ≥ 45 才算命中。**
+
+所以哪怕你的文件夹叫「我的工具」「DeepSeek」或者一串随机字符，只要结构对就能认出来。
 
 **数据目录**：`--home` → `<安装目录>\home` → 环境变量 `DSH_HOME` → `%USERPROFILE%\.dsh` → `%APPDATA%\dsh` / `%LOCALAPPDATA%\dsh` → 在安装目录里浅扫含 `profiles\web` 的目录
 
-**Node**：`--node` → `<安装目录>\node\node.exe` → **从正在运行的 DSH 服务反查** → 从其它 node 进程反查 → `PATH` → `%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`、`%APPDATA%\nvm\*`（nvm-windows）、`%LOCALAPPDATA%\Volta\bin`、`%LOCALAPPDATA%\fnm_multishells\*`、`%USERPROFILE%\scoop\apps\nodejs\current`、`C:\ProgramData\chocolatey\bin`
+**Node**：`--node` → `<安装目录>\node\node.exe` → 从正在运行的 DSH / node 进程反查 → `PATH` → `%ProgramFiles%\nodejs`、`%LOCALAPPDATA%\Programs\nodejs`、`%APPDATA%\nvm\*`（nvm-windows）、`%LOCALAPPDATA%\Volta\bin`、`%LOCALAPPDATA%\fnm_multishells\*`、`%USERPROFILE%\scoop\apps\nodejs\current`、`C:\ProgramData\chocolatey\bin`
 
 **DSH 主程序**：`--dsh` → `<安装目录>\dsh\node_modules\@deepseek-ai\dsh\lib\bin.js` → 数据目录 profile 的 `node_modules` → npm 全局目录 → npx 缓存 → 在安装/数据目录里浅扫 `bin.js`
 
 > 一条都没探到时不会硬着头皮往下检查 —— 只报一条明确的错误，告诉你怎么手动指定，而不是刷一屏"缺少核心包""主程序找不到"之类的误导信息。
+>
+> **诊断报告里的「探测过程」一行会写明每一步的结果**，方便你自己看出是哪条线索没生效。
 
-界面上点 **「更改目录」** 可以随时手动指定，程序会重新探测并立刻重跑一次诊断。探测来源（"程序所在目录" / "环境变量 DSH_ROOT" / "扫描磁盘发现"…）会写在结果里，方便排查为什么没找到。
-
+界面上点 **「更改目录」** 可以随时手动指定，程序会重新探测并立刻重跑一次诊断。
 ## 可靠性加固
 
 工具本身也可能出错，所以做了这些兜底，都有实测：
@@ -179,6 +202,8 @@ DSH一键诊断.exe --auto --fix --root "D:\MyDSH"
 | **崩溃兜底** | 未处理异常写入 `DSH诊断工具-错误日志.txt`，不会静默消失；`--auto` 模式不弹窗（免得卡住脚本）|
 | **分组隔离** | 四大检查组各自独立，某组出错会在列表里写明原因，其余检查照常跑完 |
 | **修复后验证** | 每个修复动作都验证真实结果再报成功，不通过就如实报失败 |
+| **扫描不中断** | 目录扫描逐个子目录独立保护 —— 碰到一个没权限的目录（比如 `System Volume Information`）不会让整轮扫描作废 |
+| **扫描有预算** | 广度优先 + 时间/数量双重上限，不会被 `AppData` 这类巨型目录拖住；自动跳过 junction、符号链接与系统缓存目录 |
 | **数据目录跟随** | `--root` 指定安装目录时，数据目录取 `<root>\home`，避免"诊断 A 却去读 B 的会话/缓存" |
 
 **已知行为**：诊断会更新目标目录的 LastWriteTime（可写性测试需要创建再删除一个临时文件）。
